@@ -1,134 +1,222 @@
 import os
-import librosa
-import torch
-from TTS.tts.configs.shared_configs import BaseDatasetConfig
-from TTS.tts.datasets import load_tts_samples
-from TTS.tts.layers.xtts.trainer.gpt_trainer import GPTArgs, GPTTrainerConfig, XttsAudioConfig
-from TTS.utils.manage import ModelManager
+
 from trainer import Trainer, TrainerArgs
 
-# 현재 디렉토리 가져오기
-current_dir = os.getcwd()
-data_path = os.path.join(current_dir, "dataset/KMA/wavs")  # 현재 디렉토리에 기반한 전체 경로
+from TTS.config.shared_configs import BaseDatasetConfig
+from TTS.tts.datasets import load_tts_samples
+from TTS.tts.layers.xtts.trainer.gpt_trainer import GPTArgs, GPTTrainer, GPTTrainerConfig, XttsAudioConfig
+from TTS.utils.manage import ModelManager
 
-# 데이터셋 분석을 위한 리스트 초기화
-sample_rates = []
-audio_lengths = []
+# Logging parameters
+RUN_NAME = "GPT_XTTS_v2.0_PMK_Trial6_High_Pitch_FT"
+PROJECT_NAME = "XTTS_trainer"
+DASHBOARD_LOGGER = "tensorboard"
+LOGGER_URI = None
 
-# 오디오 파일 정보 추출
-for file_name in os.listdir(data_path):
-    if file_name.endswith(".wav"):
-        file_path = os.path.join(data_path, file_name)
+# Set here the path that the checkpoints will be saved. Default: ./run/training/
+OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run", "training")
 
-        # 오디오 파일 로드
-        audio, sample_rate = librosa.load(file_path, sr=None)
+# Training Parameters
+OPTIMIZER_WD_ONLY_ON_WEIGHTS = True  # for multi-gpu training please make it False
+START_WITH_EVAL = True  # if True it will star with evaluation
+BATCH_SIZE = 4  # set here the batch size
+GRAD_ACUMM_STEPS = 84  # set here the grad accumulation steps
+# Note: we recommend that BATCH_SIZE * GRAD_ACUMM_STEPS need to be at least 252 for more efficient training. You can increase/decrease BATCH_SIZE but then set GRAD_ACUMM_STEPS accordingly.
 
-        # 샘플레이트 및 오디오 길이 저장
-        sample_rates.append(sample_rate)
-        audio_lengths.append(len(audio))
+# Define here the dataset that you want to use for the fine-tuning on.
+# KMA, 0050_G2A4E7S0C2_HJH
+config_dataset = BaseDatasetConfig(
+    formatter="ljspeech",
+    dataset_name="PMK_HIGH_PITCH",
+    path="/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK",
+    meta_file_train="/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK/high_pitch_metadata.csv",
+    # path="/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK",
+    # meta_file_train="/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK/metadata.csv",
+    language="ko",
+)
 
-# 1. 샘플레이트 설정
-sample_rate = max(set(sample_rates), key=sample_rates.count)  # 가장 빈번한 샘플레이트 선택
+# Add here the configs of the datasets
+DATASETS_CONFIG_LIST = [config_dataset]
 
-# 2. 오디오 길이 설정
-max_wav_length = max(audio_lengths)  # 가장 긴 오디오 길이
-min_wav_length = min(audio_lengths)  # 가장 짧은 오디오 길이
-
-# 3. Conditioning Length 계산
-min_conditioning_length = int(min_wav_length * 0.3)  # 최소 길이의 30%로 설정
-max_conditioning_length = int(max_wav_length * 0.7)  # 최대 길이의 70%로 설정
-
-# 결과 출력
-print("현재 디렉토리:", current_dir)
-print("데이터 경로:", data_path)
-print("샘플레이트:", sample_rate)
-print("최대 오디오 길이 (samples):", max_wav_length)
-print("최소 오디오 길이 (samples):", min_wav_length)
-print("최소 Conditioning 길이:", min_conditioning_length)
-print("최대 Conditioning 길이:", max_conditioning_length)
-
-# 모델 파일 경로 설정
-OUT_PATH = os.path.join(current_dir, "run")
+# Define the path where XTTS v2.0.1 files will be downloaded
 CHECKPOINTS_OUT_PATH = os.path.join(OUT_PATH, "XTTS_v2.0_original_model_files/")
 os.makedirs(CHECKPOINTS_OUT_PATH, exist_ok=True)
 
-# DVAE 및 MEL normalization 파일 경로 설정
-DVAE_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, "dvae.pth")
-MEL_NORM_FILE = os.path.join(CHECKPOINTS_OUT_PATH, "mel_stats.pth")
-TOKENIZER_FILE = os.path.join(CHECKPOINTS_OUT_PATH, "vocab.json")
-XTTS_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, "model.pth")
+# DVAE files
+DVAE_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/dvae.pth"
+MEL_NORM_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/mel_stats.pth"
 
-# 학습 파라미터 설정
-model_args = GPTArgs(
-    max_conditioning_length=max_conditioning_length,
-    min_conditioning_length=min_conditioning_length,
-    debug_loading_failures=True,
-    max_wav_length=max_wav_length,
-    max_text_length=200,
-    mel_norm_file=MEL_NORM_FILE,
-    dvae_checkpoint=DVAE_CHECKPOINT,
-    xtts_checkpoint=XTTS_CHECKPOINT,
-    tokenizer_file=TOKENIZER_FILE,
-    gpt_num_audio_tokens=1026,
-    gpt_start_audio_token=1024,
-    gpt_stop_audio_token=1025,
-    gpt_use_masking_gt_prompt_approach=True,
-    gpt_use_perceiver_resampler=True,
-)
+# Set the path to the downloaded files
+DVAE_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(DVAE_CHECKPOINT_LINK))
+MEL_NORM_FILE = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(MEL_NORM_LINK))
 
-# 오디오 설정
-audio_config = XttsAudioConfig(sample_rate=sample_rate, dvae_sample_rate=sample_rate, output_sample_rate=24000)
+# download DVAE files if needed
+if not os.path.isfile(DVAE_CHECKPOINT) or not os.path.isfile(MEL_NORM_FILE):
+    print(" > Downloading DVAE files!")
+    ModelManager._download_model_files([MEL_NORM_LINK, DVAE_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True)
 
-# 학습 설정
-config = GPTTrainerConfig(
-    run_eval=True,
-    epochs=1000,
-    output_path=OUT_PATH,
-    model_args=model_args,
-    run_name="kma_fine_tune_korean",
-    project_name="KMA_Korean_TTS",
-    run_description="Fine-tuning XTTS-v2 on Korean KMA dataset",
-    audio=audio_config,
-    batch_size=1,
-    batch_group_size=48,
-    eval_batch_size=1,
-    num_loader_workers=8,
-    eval_split_max_size=256,
-    print_step=50,
-    plot_step=100,
-    save_step=5000,
-    save_n_checkpoints=1,
-    save_checkpoints=True,
-    optimizer="AdamW",
-    lr=5e-6,
-    test_sentences=[
-        {
-            "text": "안녕하세요, 오늘 기분이 어떠세요?",
-            "speaker_wav": os.path.join(data_path, "sample_reference.wav"),
-            "language": "ko",
-        }
-    ],
-)
+# Download XTTS v2.0 checkpoint if needed
+TOKENIZER_FILE_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/vocab.json"
+XTTS_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/model.pth"
 
-# 데이터셋 설정 및 로드
-dataset_config = BaseDatasetConfig(
-    formatter="ljspeech", meta_file_train="metadata.csv", language="ko", path=os.path.join(current_dir, "dataset/KMA")
-)
-train_samples, eval_samples = load_tts_samples(dataset_config, eval_split=True, eval_split_size=0.02)
+# XTTS transfer learning parameters: You we need to provide the paths of XTTS model checkpoint that you want to do the fine tuning.
+TOKENIZER_FILE = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(TOKENIZER_FILE_LINK))  # vocab.json file
+XTTS_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(XTTS_CHECKPOINT_LINK))  # model.pth file
 
-# Trainer 인스턴스 생성 및 학습 시작
-trainer = Trainer(
-    TrainerArgs(
-        restore_path=None,
-        skip_train_epoch=False,
-        start_with_eval=True,
-        grad_accum_steps=252,
-    ),
-    config,
-    output_path=OUT_PATH,
-    model=None,  # 모델을 직접 초기화하는 코드 필요 시 추가
-    train_samples=train_samples,
-    eval_samples=eval_samples,
-)
+# download XTTS v2.0 files if needed
+if not os.path.isfile(TOKENIZER_FILE) or not os.path.isfile(XTTS_CHECKPOINT):
+    print(" > Downloading XTTS v2.0 files!")
+    ModelManager._download_model_files(
+        [TOKENIZER_FILE_LINK, XTTS_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True
+    )
 
-trainer.fit()
+# Training sentences generations
+SPEAKER_REFERENCE = [
+    # PMK high pitch
+    "/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK/wavs/0045_G2A3E1S0C1_PMK_000833.wav"
+    # KMA high pitch
+    # "/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/KMA/wavs/0033_G2A3E1S0C1_KMA_000474.wav"
+    # HJH high pitch
+    # "/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0050_G2A4E7S0C2_HJH/wavs/0050_G2A4E7S0C2_HJH_000880.wav"
+    # "/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0050_G2A4E7S0C2_HJH/wavs/0050_G2A4E7S0C2_HJH_000167.wav"
+    # "/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK/wavs/0045_G2A3E1S0C1_PMK_000344.wav",
+    # "/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK/wavs/0045_G2A3E1S0C1_PMK_001075.wav",
+    # "/convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK/wavs/0045_G2A3E1S0C1_PMK_001583.wav"
+
+]
+LANGUAGE = config_dataset.language
+
+
+def main():
+    # init args and config
+    model_args = GPTArgs(
+        max_conditioning_length=200000,  # 6 secs
+        min_conditioning_length=16139,  # 3 secs
+        debug_loading_failures=False,
+        max_wav_length=445466,  # ~11.6 seconds
+        max_text_length=150,
+        mel_norm_file=MEL_NORM_FILE,
+        dvae_checkpoint=DVAE_CHECKPOINT,
+        xtts_checkpoint=XTTS_CHECKPOINT,  # checkpoint path of the model that you want to fine-tune
+        tokenizer_file=TOKENIZER_FILE,
+        gpt_num_audio_tokens=1026,
+        gpt_start_audio_token=1024,
+        gpt_stop_audio_token=1025,
+        gpt_use_masking_gt_prompt_approach=True,
+        gpt_use_perceiver_resampler=True,
+    )
+    # define audio config
+    audio_config = XttsAudioConfig(sample_rate=22050, dvae_sample_rate=22050, output_sample_rate=26400)
+    # training parameters config
+    config = GPTTrainerConfig(
+        output_path=OUT_PATH,
+        model_args=model_args,
+        run_name=RUN_NAME,
+        project_name=PROJECT_NAME,
+        run_description="""
+            GPT XTTS training
+            """,
+        dashboard_logger=DASHBOARD_LOGGER,
+        logger_uri=LOGGER_URI,
+        audio=audio_config,
+        batch_size=BATCH_SIZE,
+        batch_group_size=48,
+        eval_batch_size=BATCH_SIZE,
+        num_loader_workers=8,
+        eval_split_max_size=256,
+        print_step=50,
+        plot_step=100,
+        log_model_step=1000,
+        save_step=5000,
+        save_n_checkpoints=1,
+        save_checkpoints=True,
+        # target_loss="loss",
+        print_eval=False,
+        # Optimizer values like tortoise, pytorch implementation with modifications to not apply WD to non-weight parameters.
+        optimizer="AdamW",
+        optimizer_wd_only_on_weights=OPTIMIZER_WD_ONLY_ON_WEIGHTS,
+        optimizer_params={"betas": [0.9, 0.96], "eps": 1e-8, "weight_decay": 1e-2},
+        lr=5e-06,  # learning rate
+        lr_scheduler="StepLR",
+        # it was adjusted accordly for the new step scheme
+        lr_scheduler_params={"step_size": 50, "gamma": 0.5, "last_epoch": -1},
+        test_sentences=[
+            {
+                "text": "그렇게 되면 너희는 요정 왕의 마법에 풀릴 수 있단다.",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "미안한 마음을 느끼게 할 만큼 고맙고 다행스러웠습니다.",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "의금부에 못 들어가서 서러워하니 의로운 분이 도와주셨습니다.",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "나는 장인님이 너무나 고마워서 어느덧 눈물까지 났다.",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "거미가 그녀를 위기에서 구해주었습니다.",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "나와 시간을 보내주어 고맙습니다!",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "그는 그녀의 손을 붙들고 고맙다고 했다.",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "많은 관심을 주셔서 감사합니다.",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            },
+            {
+                "text": "안녕하세요! 반갑습니다. 좋은 목소리를 내기 위해 많이 노력했습니다. 잘 부탁드립니다!",
+                "speaker_wav": SPEAKER_REFERENCE,
+                "language": LANGUAGE,
+            }
+        ]
+    )
+
+    # init the model from config
+    model = GPTTrainer.init_from_config(config)
+
+    # load training samples
+    train_samples, eval_samples = load_tts_samples(
+        DATASETS_CONFIG_LIST,
+        eval_split=True,
+        eval_split_max_size=config.eval_split_max_size,
+        eval_split_size=config.eval_split_size,
+    )
+
+    # init the trainer and 🚀
+    trainer = Trainer(
+        TrainerArgs(
+            restore_path=None,
+            # xtts checkpoint is restored via xtts_checkpoint key so no need of restore it using Trainer restore_path parameter
+            skip_train_epoch=False,
+            start_with_eval=START_WITH_EVAL,
+            grad_accum_steps=GRAD_ACUMM_STEPS,
+        ),
+        config,
+        output_path=OUT_PATH,
+        model=model,
+        train_samples=train_samples,
+        eval_samples=eval_samples,
+    )
+    trainer.fit()
+
+
+if __name__ == "__main__":
+    main()
