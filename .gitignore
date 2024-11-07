@@ -1,0 +1,10 @@
+.idea
+.venv
+dataset/TL4
+dataset/TS4
+dataset/KMA/wavs
+TTS
+run
+scripts
+models
+*.wav
