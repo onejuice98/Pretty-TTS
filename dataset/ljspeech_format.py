@@ -17,18 +17,6 @@ def parse_args():
         help="Audio(dataset) source name"
     )
     parser.add_argument(
-        "--label_path",
-        type=str,
-        required=True,
-        help="Dataset label path"
-    )
-    parser.add_argument(
-        "--audio_path",
-        type=str,
-        required=True,
-        help="Dataset audio path"
-    )
-    parser.add_argument(
         "--pitch_threshold",
         type=int,
         required=True,
@@ -44,20 +32,20 @@ def parse_args():
     
     return parser.parse_args()
 
-# 0050_G2A4E7S0C2_HJH, KMA, 0045_G2A3E1S0C1_PMK
-NAME = "0045_G2A3E1S0C1_PMK"
-label_path = "/convei_nas2/intern/jungsoo/c-arm-tts/dataset/TL4"
-mp3_path = "/convei_nas2/intern/jungsoo/c-arm-tts/dataset/TS4"
-# HJH: 1600 / KMA: 1690 / PMK: 1546
-pitch_threshold = 1546
+# # 0050_G2A4E7S0C2_HJH, KMA, 0045_G2A3E1S0C1_PMK
+# NAME = "0045_G2A3E1S0C1_PMK"
+# label_path = "/convei_nas2/intern/jungsoo/c-arm-tts/dataset/TL4"
+# mp3_path = "/convei_nas2/intern/jungsoo/c-arm-tts/dataset/TS4"
+# # HJH: 1600 / KMA: 1690 / PMK: 1546
+# pitch_threshold = 1546
+#
+# # /convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK
+# # /convei_nas2/intern/jungsoo/c-arm-tts/dataset/TS4/3.발성캐릭터/1.아동/0050_G2A4E7S0C2_HJH
+# # 0045_G2A3E1S0C1_PMK
 
-# /convei_nas2/intern/jungsoo/c-arm-tts/tts-for-human/dataset/0045_G2A3E1S0C1_PMK
-# /convei_nas2/intern/jungsoo/c-arm-tts/dataset/TS4/3.발성캐릭터/1.아동/0050_G2A4E7S0C2_HJH
-# 0045_G2A3E1S0C1_PMK
-
-def get_metadata(audio_source, label_path, mp3_path, pitch_threshold, output_name):
-    voice_label_path_list = sorted([f for f in glob.glob(label_path + "/**/**/*") if audio_source in f])
-    voice_mp3_path_list = sorted([f for f in glob.glob(mp3_path + "/**/**/*") if audio_source in f])
+def get_metadata(audio_source, pitch_threshold, output_name):
+    voice_label_path_list = sorted([f for f in glob.glob("dataset/TL4" + "/**/**/*") if audio_source in f])
+    voice_mp3_path_list = sorted([f for f in glob.glob("dataset/TS4" + "/**/**/*") if audio_source in f])
 
     label_csv = []
 
@@ -90,8 +78,8 @@ def get_metadata(audio_source, label_path, mp3_path, pitch_threshold, output_nam
     
 if __name__ == "__main__":
     args = parse_args()
-    audio_source, label_path, audio_path, pitch_threshold, output_name = args.audio_source, args.label_path, args.audio_path, args.pitch_threshold, args.output_name
+    audio_source, pitch_threshold, output_name = args.audio_source, args.pitch_threshold, args.output_name
     
-    get_metadata(audio_source, label_path, audio_path, pitch_threshold, output_name)
+    get_metadata(audio_source, pitch_threshold, output_name)
 
     
