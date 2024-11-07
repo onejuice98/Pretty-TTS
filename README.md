@@ -1,3 +1,7 @@
+Base Model: [XTTS-v2](https://huggingface.co/coqui/XTTS-v2)
+<br>
+Best Pretty Girl Model is [here](https://huggingface.co/jsswon/PMK-xtts-v2-model-v1).
+
 [![python](https://img.shields.io/badge/Python-3.11-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
 
 ### Install
@@ -12,18 +16,40 @@ pip install -r requirements.txt
 - TL4.zip | 130.60 MB
 - TS4.zip | 34.47 GB
 <br>
+
 Download at directory `dataset/TL4`, `dataset/TS4`
+
 <br>
+
 **Processing Dataset & Make Dataset LJSpeech Format**
+
+<br>
+
+At Root Directory & Modify `scripts/filter.bash` for tailored dataset
+
 ```
-python src/ljspeech_format.py
+base scripts/filter.bash
 ```
 
 ### Train
 Use [Coqui/TTS](https://github.com/coqui-ai/TTS)
-Execute train code
+
+**Exeucute train code at TTS directory**
+
+```
+CUDA_VISIBLE_DEVICES="0" python TTS/train.py
+```
+Train Environment: NVIDIA RTX A5000 (24GB)
+<br>
+Training Duration: 6.275 hours
+<br>
+Hyperparameter is [here](https://huggingface.co/jsswon/PMK-xtts-v2-model-v1/blob/main/train.py).
 
 ### Inference
+0. Execute `mkdir models` at Root directory
 1. Upload Exist Pretty TTS [(HuggingFace)](https://huggingface.co/jsswon/PMK-xtts-v2-model-v1) with `src/uplad.py`
-2. Change Utterance in `dataset/utterance.json`
+2. Modify Utterance in `dataset/utterance.json`
 3. Execute script `bash scripts/inference.bash`
+
+### Example Best Model Inference
+[Sample Audio](output/PMK-xtts-v2-model-v1/1.wav)
