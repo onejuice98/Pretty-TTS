@@ -3,8 +3,9 @@
 dataset/TL4
 dataset/TS4
 dataset/KMA/wavs
+dataset/0045_G2A3E1S0C1_PMK/wavs
+dataset/0050_G2A4E7S0C2_HJH/wavs
 TTS
 run
 scripts
 models
-*.wav
